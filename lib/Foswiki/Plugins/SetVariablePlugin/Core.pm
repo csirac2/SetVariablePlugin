@@ -18,6 +18,7 @@ use strict;
 use constant DEBUG => 0; # toggle me
 use constant ACTION_UNSET => 0;
 use constant ACTION_SET => 1;
+use Foswiki();
 
 ###############################################################################
 # constructor
@@ -91,7 +92,8 @@ sub applyRules {
     my $type = $record->{type} || 'Local';
     my $value = expandVariables($record->{value});
     if (defined $value) {
-      $value = Foswiki::Func::expandCommonVariables($value, $topic, $web);
+      #$value = Foswiki::Func::expandCommonVariables($value, $topic, $web);
+      $value = $this->_procVars($value, $web, $topic);
     }
 
     if ($record->{action} eq ACTION_SET && defined($value)) {
@@ -246,6 +248,32 @@ sub handleDebugRules {
 }
 
 ###############################################################################
+sub _doVar {
+    my ($this, $what, $argstr, $web, $topic) = @_;
+    my $params = Foswiki::Attrs->new($argstr);
+    my $output;
+
+    if ($what eq 'GETVAR') {
+        $output = $this->handleGetVar($Foswiki::Plugins::SESSION, $params, $topic, $web);
+    }
+    elsif ($what eq 'SETVAR') {
+        $output = $this->handleSetVar($Foswiki::Plugins::SESSION, $params, $topic, $web);
+    }
+    else {
+        $output = $this->handleUnsetVar($Foswiki::Plugins::SESSION, $params, $topic, $web);
+    }
+
+    return $output;
+}
+
+sub _procVars {
+    my ($this, $text, $web, $topic) = @_;
+
+    $text =~ s/%(GETVAR|SETVAR|UNSETVAR)({.*?})?%/$this->_doVar($1, $2, $web, $topic)/gms;
+
+    return $text;
+}
+###############################################################################
 sub handleBeforeSave {
   my ($this, $text, $topic, $web, $meta) = @_;
 
@@ -257,7 +285,8 @@ sub handleBeforeSave {
   my $template = Foswiki::Func::getPreferencesValue('VIEW_TEMPLATE') || 'view';
   my $tmpl = Foswiki::Func::readTemplate($template);
   $tmpl =~ s/\%TEXT%/$text/g;
-  $text = Foswiki::Func::expandCommonVariables($tmpl, $topic, $web);
+  # expandCommonVariables causes timeouts during save on large complex topics...
+  $text = $this->_procVars($text, $web, $topic);
 
   # create rules from Set+VARNAME, Local+VARNAME, Unset+VARNAME and Default+VARNAME urlparams
   my $request = Foswiki::Func::getCgiQuery();
